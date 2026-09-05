@@ -57,7 +57,7 @@ The package reserves `data`, `reports`, `models`, `training`, `inference`, and `
 
 ## Quick start
 
-I use Python 3.11 or later. I create the environment and install the package in editable mode:
+I use Python 3.14.3. I create the environment and install the package in editable mode:
 
 ```bash
 conda env create -f environment.yml
