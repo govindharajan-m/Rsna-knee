@@ -1,0 +1,61 @@
+# Competition data and medical images
+/data/
+/raw_data/
+/datasets/
+*.dcm
+*.dicom
+*.ima
+
+# Generated experiment and submission artifacts
+experiments/*
+!experiments/.gitkeep
+submissions/*
+!submissions/.gitkeep
+artifacts/
+checkpoints/
+weights/
+models/**/*.ckpt
+models/**/*.pt
+models/**/*.pth
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.h5
+*.hdf5
+
+# Credentials and local configuration
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.*
+
+# Python environments, packaging, and caches
+.venv/
+.test-venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Deterministic preprocessing cache and local quality-control renders
+/cache/
+/experiments/qc/
+/experiments/manifests/
+/experiments/logs/
+!experiments/logs/.gitkeep
+
+# Notebook and operating-system noise
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db

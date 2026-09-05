@@ -1,0 +1,55 @@
+# Baseline infrastructure settings. I will set modelling and optimization choices in later experiments.
+seed: 2026
+
+paths:
+  # I set this to the mounted or local dataset location when I run an audit.
+  dataset_root: null
+  audit_output: experiments/dataset_audit
+  experiment_root: experiments
+  cache_root: cache
+  manifest_output: experiments/manifests/study_manifest.parquet
+  qc_output: experiments/qc
+
+image:
+  # I have not selected a final image resolution or slice representation.
+  resolution: null
+  num_slices: null
+
+model:
+  # I have not implemented a neural-network architecture.
+  name: null
+
+training:
+  # I have not implemented training hyperparameters.
+  enabled: false
+
+validation:
+  # I will define folds and metrics with a later experiment configuration.
+  fold: null
+
+logging:
+  level: INFO
+
+audit:
+  scan_all_files: false
+  dicom_extensions: [".dcm", ".dicom", ".ima", ""]
+  expected_dimensions: null
+  pixel_spacing_range_mm: null
+  max_error_samples: 100
+
+preprocessing:
+  # I treat these as experimental baseline settings, not final MRI preprocessing decisions.
+  version: preprocess_v001
+  normalization:
+    method: percentile_minmax
+    lower_percentile: 0.5
+    upper_percentile: 99.5
+  resampling:
+    target_spacing_mm: null
+    target_size: null
+    interpolation_order: 1
+  roi:
+    method: foreground_quantile
+    foreground_quantile: 0.60
+    margin_pixels: 12
+    minimum_area_fraction: 0.02
