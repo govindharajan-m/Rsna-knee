@@ -23,8 +23,10 @@ from kneescope12.data.dicom import DicomGeometryError, order_dicom_slices  # noq
 SAMPLE_SIZE = 20
 CANDIDATE_POOL_SIZE = 60
 CSV_FIELDS = {
-    "study_id": "study_id",
-    "series_id": "series_id",
+    "study_id": "StudyInstanceUID",
+    "series_id": "SeriesInstanceUID",
+}
+OPTIONAL_CSV_FIELDS = {
     "anatomical_plane": "anatomical_plane",
     "fluid_sensitive": "fluid_sensitive",
 }
@@ -85,29 +87,30 @@ def _read_series_rows(series_csv: Path) -> list[dict[str, str]]:
         if reader.fieldnames is None:
             raise ValueError(f"I found no header in {series_csv}")
         normalized = {name.strip().lower(): name for name in reader.fieldnames}
-        missing = [name for name in CSV_FIELDS if name not in normalized]
+        missing = [column for column in CSV_FIELDS.values() if column.lower() not in normalized]
         if missing:
             raise ValueError(f"I could not find required train_series.csv columns: {missing}")
         rows = []
         for row in reader:
             values = {
-                key: (row.get(normalized[column]) or "").strip()
+                key: (row.get(normalized[column.lower()]) or "").strip()
                 for key, column in CSV_FIELDS.items()
             }
+            values.update(
+                {
+                    key: (row.get(normalized.get(column.lower(), "")) or "").strip()
+                    for key, column in OPTIONAL_CSV_FIELDS.items()
+                }
+            )
             if values["study_id"] and values["series_id"]:
                 rows.append(values)
     return rows
 
 
 def _series_directory(dataset_root: Path, study_id: str, series_id: str) -> Path:
-    """I resolve one competition series directory from either accepted root form."""
+    """I resolve one competition series under the canonical train_series root."""
 
-    images_root = dataset_root / "train_images"
-    if images_root.is_dir():
-        return images_root / study_id / series_id
-    if dataset_root.name == "train_images":
-        return dataset_root / study_id / series_id
-    return dataset_root / study_id / series_id
+    return dataset_root / "train_series" / study_id / series_id
 
 
 def _csv_candidate_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
