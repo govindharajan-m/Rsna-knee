@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -107,6 +107,84 @@ class DicomReadResult:
         """I report whether metadata extraction succeeded."""
 
         return self.metadata is not None
+
+
+class DicomGeometryError(ValueError):
+    """I report missing or invalid geometry required for physical ordering."""
+
+
+@dataclass(frozen=True)
+class OrderedDicomSlice:
+    """I retain one path, its metadata, and its physical slice coordinate."""
+
+    path: Path
+    metadata: DicomMetadata
+    physical_coordinate: float
+    duplicate_physical_coordinate: bool = False
+
+
+@dataclass(frozen=True)
+class DicomSliceOrdering:
+    """I retain ordered slices, the normalized normal, and duplicate information."""
+
+    slices: tuple[OrderedDicomSlice, ...]
+    slice_normal: tuple[float, float, float]
+    has_duplicate_physical_coordinates: bool
+
+
+def order_dicom_slices(paths: Sequence[str | Path]) -> DicomSliceOrdering:
+    """I order DICOM paths by their physical slice coordinates.
+
+    I read metadata only; pixel arrays are never materialized. Duplicate physical
+    coordinates remain in the result and use InstanceNumber, then filepath, as
+    deterministic secondary keys. I flag every member of a duplicate group.
+    """
+
+    metadata: list[DicomMetadata] = []
+    for path in paths:
+        result = read_dicom_metadata(path)
+        if result.metadata is None:
+            raise DicomGeometryError(
+                f"I could not read geometry from {Path(path)}: {result.error or 'metadata read failed'}"
+            )
+        metadata.append(result.metadata)
+    if not metadata:
+        raise DicomGeometryError("I cannot order an empty DICOM series")
+
+    normal = _validated_slice_normal(metadata[0])
+    coordinates: list[float] = []
+    for item in metadata:
+        item_normal = _validated_slice_normal(item)
+        if not np.allclose(item_normal, normal, rtol=1e-5, atol=1e-7):
+            raise DicomGeometryError(f"I found inconsistent slice orientation in {item.path}")
+        if item.image_position_patient is None:
+            raise DicomGeometryError(f"I found missing ImagePositionPatient in {item.path}")
+        position = np.asarray(item.image_position_patient, dtype=float)
+        if not np.all(np.isfinite(position)):
+            raise DicomGeometryError(f"I found non-finite ImagePositionPatient in {item.path}")
+        coordinates.append(float(np.dot(position, normal)))
+
+    indexed = list(zip(metadata, coordinates, strict=True))
+    indexed.sort(key=lambda entry: (entry[1], _instance_sort_key(entry[0]), str(entry[0].path)))
+    coordinate_counts: dict[float, int] = {}
+    for _, coordinate in indexed:
+        coordinate_counts[coordinate] = coordinate_counts.get(coordinate, 0) + 1
+    slices = tuple(
+        OrderedDicomSlice(
+            path=item.path,
+            metadata=item,
+            physical_coordinate=coordinate,
+            duplicate_physical_coordinate=coordinate_counts[coordinate] > 1,
+        )
+        for item, coordinate in indexed
+    )
+    return DicomSliceOrdering(
+        slices=slices,
+        slice_normal=tuple(float(value) for value in normal),
+        has_duplicate_physical_coordinates=any(
+            count > 1 for count in coordinate_counts.values()
+        ),
+    )
 
 
 @dataclass(frozen=True)
@@ -265,6 +343,31 @@ def _extract_metadata(path: Path, dataset: Any) -> DicomMetadata:
         magnetic_field_strength=_float(dataset, "MagneticFieldStrength"),
         sequence_name=_text(dataset, "SequenceName"),
     )
+
+
+def _validated_slice_normal(item: DicomMetadata) -> np.ndarray:
+    """I validate orientation vectors and return a normalized slice normal."""
+
+    orientation = item.image_orientation_patient
+    if orientation is None or len(orientation) != 6:
+        raise DicomGeometryError(f"I found missing or invalid ImageOrientationPatient in {item.path}")
+    row = np.asarray(orientation[:3], dtype=float)
+    column = np.asarray(orientation[3:], dtype=float)
+    if not np.all(np.isfinite(row)) or not np.all(np.isfinite(column)):
+        raise DicomGeometryError(f"I found non-finite ImageOrientationPatient in {item.path}")
+    if np.linalg.norm(row) <= 1e-8 or np.linalg.norm(column) <= 1e-8:
+        raise DicomGeometryError(f"I found a zero orientation vector in {item.path}")
+    normal = np.cross(row, column)
+    normal_norm = np.linalg.norm(normal)
+    if normal_norm <= 1e-8:
+        raise DicomGeometryError(f"I found unusable orientation vectors in {item.path}")
+    return normal / normal_norm
+
+
+def _instance_sort_key(item: DicomMetadata) -> int:
+    """I provide a stable secondary key without making it authoritative."""
+
+    return item.instance_number if item.instance_number is not None else 0
 
 
 def _slice_sort_key(item: DicomMetadata) -> tuple[int, float, int, str]:
