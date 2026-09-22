@@ -237,7 +237,7 @@ def validate(dataset_root: Path, series_csv: Path | None = None) -> dict[str, ob
                     raise AssertionError("duplicate coordinates were not retained and flagged")
             adjacent = [
                 abs(right - left)
-                for left, right in zip(coordinates, coordinates[1:], strict=True)
+                for left, right in zip(coordinates, coordinates[1:], strict=False)
             ]
             extent = max(coordinates) - min(coordinates) if coordinates else 0.0
             slice_counts.append(len(candidate.paths))
