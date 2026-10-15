@@ -8,34 +8,76 @@ I am investigating whether a combination of anatomical localization, multi-resol
 
 ## Current status
 
-> Foundation and dataset-audit infrastructure under development.
+> A small MRI-only training baseline is implemented for the explicitly labeled
+> studies. It is an engineering baseline, not a validated competition model.
 
-I have not implemented a neural network. This repository currently provides configuration, reproducibility, DICOM metadata access, and a dataset-audit command only.
+The baseline provides strict geometry-ordered volume reconstruction, fixed-shape
+preprocessing, a compact 3D CNN, and a one-batch smoke-test mode. The training
+script does not use reports, weak labels, or ROI localization; a separate
+inference script and the Kaggle notebook generate test probabilities.
 
-## Planned pipeline
-
-```text
-MRI / DICOM
-  -> quality control
-  -> series identification
-  -> volume construction
-  -> anatomical localization
-  -> global / local representations
-  -> feature extraction
-  -> finding-specific attention
-  -> twelve outputs
-```
+## Baseline data policy
 
 ```text
-Radiology report
-  -> language / finding analysis
-  -> uncertainty and negation handling
-  -> probabilistic weak labels
-  -> calibration
-  -> training supervision
+DICOM series -> physical slice ordering -> [depth, row, column] volume
+  -> per-volume percentile scaling -> fixed-shape resize
+  -> plane channels -> small 3D CNN -> 12 logits
 ```
 
-I intend to use radiology reports only for training-time supervision. My final inference pipeline must operate from permitted MRI/test inputs and must not depend on unavailable test reports.
+I use only rows with all twelve configured binary labels in `train.csv`; unlabeled
+report rows are excluded. For each manifest plane, I select the lexicographically
+first `SeriesInstanceUID`. Channels are fixed as Axial, Coronal, Sagittal; an
+absent plane is zero-filled. This is a reproducible candidate rule, not an
+optimal or medically validated series choice. Missing or malformed selected data
+raises an explicit error.
+
+If Kaggle supplies no test-series manifest, the notebook derives a one-to-one
+association between training manifest plane names and dominant DICOM slice-normal
+coordinate axes from the selected gold-training series. It applies that measured
+association to test series metadata and selects the lowest UID for each plane.
+This is an empirical dataset mapping, not an L/R or A/P interpretation.
+
+I order slices with the existing physical-geometry ordering. I retain the DICOM
+acquisition's in-plane row/column direction and resize the index extent to the
+configured `[depth, row, column]` shape. I do not canonicalize patient orientation
+or claim a target physical voxel spacing. Intensity values are clipped at
+configurable per-volume percentiles and scaled to `[0, 1]`; non-finite values
+become zero. These settings are computationally convenient starting points, not
+scientifically selected MRI preprocessing.
+
+The dataset keeps processed tensors in an in-process per-study cache to avoid
+re-decoding selected DICOM series on each epoch. Cache memory therefore grows
+with the number of studies visited.
+
+## Running the baseline
+
+I configure dataset paths and preprocessing/model/training parameters in
+`configs/baseline.yaml`, or override paths and hyperparameters on the command
+line. I can verify one real training batch, including preprocessing, logits,
+loss, and backward pass, with:
+
+```bash
+python scripts/train_baseline.py \
+  --config configs/baseline.yaml \
+  --dataset-root /path/to/rsna-knee-abnormality-detection \
+  --smoke-test
+```
+
+I train for the configured epochs and write a checkpoint outside source modules:
+
+```bash
+python scripts/train_baseline.py \
+  --config configs/baseline.yaml \
+  --dataset-root /path/to/rsna-knee-abnormality-detection
+```
+
+The split is a seeded study-level random split, not stratified; with only 58
+labeled studies, per-finding validation ROC AUC is reported only when the
+validation subset contains both positive and negative examples. Labels with
+insufficient examples are explicitly marked as unavailable. The Kaggle notebook
+then refits the same small model using all explicitly labeled studies and
+generates a probability CSV in sample-submission row/column order. The inference
+script validates every row and prediction before reporting success.
 
 ## Experimental philosophy
 
@@ -53,7 +95,8 @@ submissions/          Ignored local submission outputs
 notebooks/            Optional exploratory notebooks
 ```
 
-The package reserves `data`, `reports`, `models`, `training`, `inference`, and `utils` modules for incremental development. The model, report processing, training, and submission components are intentionally absent at this stage.
+The package adds only the data and model components required for this baseline.
+Report processing, weak supervision, and ROI localization remain future work.
 
 ## Quick start
 

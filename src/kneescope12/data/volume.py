@@ -10,7 +10,12 @@ import numpy as np
 
 from kneescope12.utils.logging import get_logger
 
-from .dicom import DicomMetadata, read_dicom_image, read_dicom_metadata
+from .dicom import (
+    DicomMetadata,
+    order_dicom_slices,
+    read_dicom_image,
+    read_dicom_metadata,
+)
 from .ordering import SliceOrdering, order_slices
 
 logger = get_logger("volume")
@@ -47,6 +52,52 @@ class VolumeReconstruction:
         """I report whether reconstruction produced at least one consistent MRI slice."""
 
         return self.raw_volume is not None and self.geometry is not None
+
+
+def reconstruct_ordered_volume(paths: Sequence[str | Path]) -> np.ndarray:
+    """I decode every geometry-ordered slice into a strict float32 ``[z, y, x]`` volume.
+
+    Unlike the earlier QC reconstruction helper below, this training path never
+    skips failed or dimension-mismatched slices.
+    """
+
+    ordering = order_dicom_slices(paths)
+    if len(ordering.slices) != len(paths):
+        raise ValueError(
+            "Ordered metadata slice count does not match input path count "
+            f"({len(ordering.slices)} != {len(paths)})"
+        )
+    pixel_slices: list[np.ndarray] = []
+    expected_shape: tuple[int, int] | None = None
+    for ordered_slice in ordering.slices:
+        result = read_dicom_image(ordered_slice.path)
+        if not result.succeeded or result.pixels is None:
+            raise ValueError(
+                f"I could not decode pixels for {ordered_slice.path}: "
+                f"{result.error or 'no pixel array returned'}"
+            )
+        pixels = np.asarray(result.pixels)
+        if pixels.ndim != 2:
+            raise ValueError(
+                f"I expected a 2D DICOM slice at {ordered_slice.path}; got {pixels.shape}"
+            )
+        shape = (int(pixels.shape[0]), int(pixels.shape[1]))
+        if expected_shape is None:
+            expected_shape = shape
+        elif shape != expected_shape:
+            raise ValueError(
+                f"I found inconsistent decoded pixel dimensions at {ordered_slice.path}: "
+                f"{shape} != {expected_shape}"
+            )
+        pixel_slices.append(pixels.astype(np.float32, copy=False))
+    if len(pixel_slices) != len(ordering.slices):
+        raise ValueError(
+            "Decoded pixel slice count does not match ordered metadata slice count "
+            f"({len(pixel_slices)} != {len(ordering.slices)})"
+        )
+    if not pixel_slices:
+        raise ValueError("I cannot reconstruct a volume from an empty DICOM series")
+    return np.stack(pixel_slices, axis=0).astype(np.float32, copy=False)
 
 
 def reconstruct_series_from_paths(paths: Sequence[str | Path]) -> VolumeReconstruction:
@@ -124,7 +175,11 @@ def reconstruct_series(slices: Sequence[DicomMetadata]) -> VolumeReconstruction:
     raw_volume = np.stack(decoded_slices, axis=0)
     geometry = _build_geometry(decoded_metadata, ordering)
     if skipped_paths:
-        logger.warning("I skipped %d slices while reconstructing series %s", len(skipped_paths), geometry.series_instance_uid)
+        logger.warning(
+            "I skipped %d slices while reconstructing series %s",
+            len(skipped_paths),
+            geometry.series_instance_uid,
+        )
     return VolumeReconstruction(
         raw_volume=raw_volume,
         geometry=geometry,

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 import numpy as np
-from scipy.ndimage import zoom
+from scipy.ndimage import affine_transform, zoom
 
 
 @dataclass(frozen=True)
@@ -19,7 +19,9 @@ class ResamplingConfig:
     def __post_init__(self) -> None:
         """I validate that requested geometry is physically and numerically meaningful."""
 
-        if self.target_spacing_mm is not None and any(value <= 0 for value in self.target_spacing_mm):
+        if self.target_spacing_mm is not None and any(
+            value <= 0 for value in self.target_spacing_mm
+        ):
             raise ValueError("Target spacing values must be positive")
         if self.target_size is not None and any(value <= 0 for value in self.target_size):
             raise ValueError("Target image size values must be positive")
@@ -74,7 +76,11 @@ def resample_volume(
         if output_spacing[2] is not None:
             output_spacing[2] = float(input_spacing_mm[2]) / scale[2]
     applied = not np.allclose(scale, 1.0)
-    output = zoom(array, zoom=tuple(scale), order=config.interpolation_order) if applied else array.copy()
+    output = (
+        zoom(array, zoom=tuple(scale), order=config.interpolation_order)
+        if applied
+        else array.copy()
+    )
     return ResamplingResult(
         volume=output,
         input_shape=tuple(int(value) for value in array.shape),
@@ -84,6 +90,36 @@ def resample_volume(
         scale_factors=tuple(float(value) for value in scale),
         applied=applied,
     )
+
+
+def resample_to_shape(
+    volume: np.ndarray, target_shape: tuple[int, int, int], *, order: int = 1
+) -> np.ndarray:
+    """I resize a 3D array to an exact shape while preserving acquired axis order."""
+
+    array = np.asarray(volume)
+    if array.ndim != 3 or any(size <= 0 for size in array.shape):
+        raise ValueError(f"I expect a non-empty 3D volume, received {array.shape}")
+    if len(target_shape) != 3 or any(
+        not isinstance(size, int) or size <= 0 for size in target_shape
+    ):
+        raise ValueError(f"I expect three positive integer target dimensions, got {target_shape}")
+    if order not in range(6):
+        raise ValueError(f"I expect interpolation order from zero through five, got {order}")
+    scales = [
+        (input_size - 1) / (output_size - 1) if output_size > 1 else 0.0
+        for input_size, output_size in zip(array.shape, target_shape, strict=True)
+    ]
+    output = affine_transform(
+        array.astype(np.float32, copy=False),
+        matrix=np.diag(scales),
+        offset=0.0,
+        output_shape=target_shape,
+        order=order,
+        mode="nearest",
+        prefilter=order > 1,
+    )
+    return np.asarray(output, dtype=np.float32)
 
 
 def resampling_config_record(config: ResamplingConfig) -> dict[str, object]:

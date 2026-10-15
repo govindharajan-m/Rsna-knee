@@ -1,0 +1,15 @@
+{
+  "id": "govind123445/knee-12",
+  "title": "KneeScope-12 MRI-only baseline",
+  "code_file": "knee12.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": [
+    "rsna-knee-abnormality-detection"
+  ],
+  "kernel_sources": []
+}

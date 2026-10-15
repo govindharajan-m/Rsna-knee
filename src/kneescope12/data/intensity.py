@@ -55,6 +55,32 @@ def measure_intensity(volume: np.ndarray) -> IntensityStatistics:
     )
 
 
+def normalize_mri_volume(
+    volume: np.ndarray,
+    *,
+    lower_percentile: float = 0.5,
+    upper_percentile: float = 99.5,
+) -> np.ndarray:
+    """I percentile-clip finite voxels and scale each volume to ``[0, 1]``."""
+
+    array = np.asarray(volume, dtype=np.float32)
+    if array.size == 0:
+        raise ValueError("I cannot normalize an empty volume")
+    if not 0 <= lower_percentile < upper_percentile <= 100:
+        raise ValueError("I require 0 <= lower percentile < upper percentile <= 100")
+    finite_mask = np.isfinite(array)
+    output = np.zeros(array.shape, dtype=np.float32)
+    if not finite_mask.any():
+        return output
+    finite = array[finite_mask]
+    lower, upper = np.percentile(finite, (lower_percentile, upper_percentile))
+    if not np.isfinite(lower) or not np.isfinite(upper) or upper <= lower:
+        return output
+    clipped = np.clip(finite, lower, upper)
+    output[finite_mask] = ((clipped - lower) / (upper - lower)).astype(np.float32)
+    return output
+
+
 def summarize_intensity(records: Iterable[IntensityStatistics]) -> dict[str, float | int | None]:
     """I summarize between-volume variation without treating it as a normalization choice."""
 

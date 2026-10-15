@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
+from .intensity import normalize_mri_volume
 from .normalization import NormalizationConfig, NormalizationResult, normalize_volume
-from .resampling import ResamplingConfig, ResamplingResult, resample_volume
+from .resampling import ResamplingConfig, ResamplingResult, resample_to_shape, resample_volume
 from .roi import RoiConfig, RoiResult, estimate_roi
 from .volume import VolumeReconstruction
 
@@ -25,7 +27,7 @@ class PreprocessingConfig:
     roi: RoiConfig
 
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "PreprocessingConfig":
+    def from_mapping(cls, values: Mapping[str, Any]) -> PreprocessingConfig:
         """I construct preprocessing configuration from a YAML mapping."""
 
         if not isinstance(values, Mapping):
@@ -36,7 +38,8 @@ class PreprocessingConfig:
         normalization_values = values.get("normalization", {})
         resampling_values = values.get("resampling", {})
         roi_values = values.get("roi", {})
-        if not all(isinstance(item, Mapping) for item in (normalization_values, resampling_values, roi_values)):
+        transform_values = (normalization_values, resampling_values, roi_values)
+        if not all(isinstance(item, Mapping) for item in transform_values):
             raise ValueError("preprocessing transform sections must be mappings")
         return cls(
             version=version,
@@ -93,13 +96,35 @@ class ProcessedVolume:
         }
 
 
+def preprocess_baseline_volume(
+    volume: np.ndarray,
+    *,
+    target_shape: tuple[int, int, int],
+    lower_percentile: float = 0.5,
+    upper_percentile: float = 99.5,
+    interpolation_order: int = 1,
+) -> np.ndarray:
+    """I apply the baseline per-volume normalization and fixed-shape resize only."""
+
+    normalized = normalize_mri_volume(
+        volume,
+        lower_percentile=lower_percentile,
+        upper_percentile=upper_percentile,
+    )
+    return resample_to_shape(normalized, target_shape, order=interpolation_order)
+
+
 def preprocess_volume(
     reconstruction: VolumeReconstruction,
     config: PreprocessingConfig,
 ) -> ProcessedVolume:
     """I apply configured preprocessing while retaining raw geometry in the reconstruction."""
 
-    if not reconstruction.is_usable or reconstruction.raw_volume is None or reconstruction.geometry is None:
+    if (
+        not reconstruction.is_usable
+        or reconstruction.raw_volume is None
+        or reconstruction.geometry is None
+    ):
         raise ValueError("I cannot preprocess an unusable reconstruction")
     normalized = normalize_volume(reconstruction.raw_volume, config.normalization)
     resampled = resample_volume(

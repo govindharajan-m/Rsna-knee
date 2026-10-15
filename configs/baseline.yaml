@@ -1,34 +1,60 @@
-# Baseline infrastructure settings. I will set modelling and optimization choices in later experiments.
+# Small MRI-only baseline settings for the 58 explicitly labeled training studies.
 seed: 2026
 
 paths:
-  # I set this to the mounted or local dataset location when I run an audit.
   dataset_root: null
+  labels_csv: null
+  series_csv: null
   audit_output: experiments/dataset_audit
   experiment_root: experiments
   cache_root: cache
   manifest_output: experiments/manifests/study_manifest.parquet
   qc_output: experiments/qc
+  checkpoint: experiments/baseline/checkpoint.pt
 
 image:
-  # I have not selected a final image resolution or slice representation.
-  resolution: null
-  num_slices: null
+  target_shape: [24, 96, 96]
 
 model:
-  # I have not implemented a neural-network architecture.
-  name: null
+  name: small_3d_cnn
+  base_channels: 8
 
 training:
-  # I have not implemented training hyperparameters.
-  enabled: false
+  enabled: true
+  batch_size: 1
+  epochs: 5
+  learning_rate: 0.001
+  weight_decay: 0.0001
 
 validation:
-  # I will define folds and metrics with a later experiment configuration.
-  fold: null
+  fraction: 0.2
 
 logging:
   level: INFO
+
+labels:
+  - ACL
+  - MCL
+  - Medial Meniscus
+  - Lateral Meniscus
+  - Medial OA
+  - Lateral OA
+  - PF OA
+  - Effusion
+  - Synovitis
+  - Baker's
+  - Contusion
+  - Fracture
+
+baseline:
+  # I keep fixed channels in acquisition-plane slots and never rank by image quality.
+  plane_order: [Axial, Coronal, Sagittal]
+  max_series_per_study: 3
+  target_shape: [24, 96, 96]
+  preprocessing:
+    lower_percentile: 0.5
+    upper_percentile: 99.5
+    interpolation_order: 1
 
 audit:
   scan_all_files: false
@@ -38,7 +64,7 @@ audit:
   max_error_samples: 100
 
 preprocessing:
-  # I treat these as experimental baseline settings, not final MRI preprocessing decisions.
+  # These settings belong to the separate legacy preparation/QC path, not train_baseline.py.
   version: preprocess_v001
   normalization:
     method: percentile_minmax
